@@ -37,7 +37,6 @@ class UserService {
     }
     async getUserRooms(id) 
     {
-        console.log("MyID", id);
         if(typeof id == "undefined" || isNaN(id))
             throw new TypeError("User id is undefined");
         return this.pool.promise().query("select rooms.* from room_users JOIN rooms ON room_users.ROOM_ID = rooms.ID where room_users.USER_ID ="+id)

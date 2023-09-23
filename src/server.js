@@ -7,7 +7,7 @@ const RoomService = require('./services/roomservice.js')
 const UserService = require('./services/userservice.js');
 const MessageService = require('./services/messageservice.js');
 
-const wss = new WebSocket.Server({port:7071})
+const wss = new WebSocket.Server({port:7071,clientTracking:true})
 
 authorizedUsers = new Map();
 serverMethods   = new Map();
@@ -22,6 +22,7 @@ serverMethods.set(getCurrentUserInfo.name, getCurrentUserInfo);
 serverMethods.set(getUserRooms.name, getUserRooms);
 serverMethods.set(sendChatMessage.name, sendChatMessage);
 serverMethods.set(getRoomHistory.name, getRoomHistory);
+serverMethods.set(getRoomUsers.name, getRoomUsers); 
 const db_pool = MySql.createPool({
     host: 'localhost',
     user: 'root',
@@ -41,7 +42,7 @@ mService = new MessageService(db_pool);
 wss.on('connection',(ws,req)=> {
     ws.on('error', console.error);
     const ip = req.socket.remoteAddress;
-    console.log(ip + ' connected to server')
+    console.log(ip, ' connected to server')
     ws.on('message',(messageAsString) => {
         if(!messageAsString)
             return
@@ -73,7 +74,7 @@ function sendBadResponse(ws,responseTo,error="")
 }
 function sendResponse(ws,to, data)
 {
-    var response = {type: "response", data: data?data:{}};
+    var response = {type: "response", data: data?data:{},messageID:3, ApiVersion:"1.0"};
     response.data.responseTo = to;
     console.log("response", response);
     ws.send(JSON.stringify(response));
@@ -122,8 +123,11 @@ async function loginUser(username, password,ws)
         generatedToken = uuidv4();
         authorizedUsers.set(generatedToken,{socket:ws, username: username, id:user.ID});
         console.log("Logged user with token " + generatedToken+ " and id: ",user.ID);
-        ws.on("close", close => authorizedUsers.delete(generatedToken));
-
+        ws.on("close", close => {
+            console.log("User deleted with token ",generatedToken);
+            authorizedUsers.delete(generatedToken)
+        }
+            );
         return {userToken:generatedToken};
     });
 }
@@ -146,16 +150,24 @@ async function registerUser(username, password,ws)
         console.log("Registred new user with token " + generatedToken+ " and id: ",id);
         addUserToRoom(generatedToken,id,1);
         addUserToRoom(generatedToken,id,2);
-        ws.on("close", close => authorizedUsers.delete(generatedToken));
+        ws.on("close", close => {
+            console.log("User deleted with token ",generatedToken);
+            authorizedUsers.delete(generatedToken)
+        }
+            );
 
         return {userToken:generatedToken};
     });
 }
 
 
-function getRoomUsers(userToken, roomID)
+function getRoomUsers(roomID)
 {
-
+    return rService.getRoomUsers(roomID)
+    .then(results=>{
+        console.log(results)
+        return {users: results}}
+    );
 }
 async function getUserRooms(id)
 {
@@ -170,7 +182,6 @@ async function getRoomHistory(userToken,roomID)
 {
     return mService.getMessagesHistory(roomID)
     .then(results=>{
-        console.log("messages",results)
         return {messages: results}
     });
 }
@@ -194,12 +205,12 @@ async function getCurrentUserInfo(userToken)
 async function sendChatMessage(userToken, roomID,chatMessage )
 {
     return mService.createMessage(roomID,chatMessage, authorizedUsers.get(userToken).id)
-    .then((result)=>{return sendMethodCal([roomID,result]);} );
+    .then((result)=>{return clientMethodCall([roomID,result]);} );
 }
-async function sendMethodCal(args,data)
+async function clientMethodCall(args,messdata)
 {
     var call = {type: "methodCall",data:{args:args}};
-    console.log("CALL", call);
+    console.log("DEBUG: SOCKETS COUNT ", authorizedUsers.size)
     authorizedUsers.forEach((value,key) => {
         value.socket.send(JSON.stringify(call))
     });
