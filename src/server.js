@@ -1,5 +1,4 @@
 // сделанный на коленке сервер на вебоскетах для месенджера, без поддержки rest 
-const MySql = require('mysql2');
 const WebSocket  = require('ws');
 
 const SendableError = require('./components/SendableError.js')
@@ -7,7 +6,7 @@ const RoomService = require('./services/roomservice.js')
 const UserService = require('./services/userservice.js');
 const MessageService = require('./services/messageservice.js');
 
-const wss = new WebSocket.Server({port:7071,clientTracking:true})
+const wss = new WebSocket.Server({port:8000,clientTracking:true})
 
 authorizedUsers = new Map();
 serverMethods   = new Map();
@@ -23,22 +22,10 @@ serverMethods.set(getUserRooms.name, getUserRooms);
 serverMethods.set(sendChatMessage.name, sendChatMessage);
 serverMethods.set(getRoomHistory.name, getRoomHistory);
 serverMethods.set(getRoomUsers.name, getRoomUsers); 
-const db_pool = MySql.createPool({
-    host: 'localhost',
-    user: 'root',
-    password: "123p",
-    database: 'chatdb',
-    waitForConnections: true,
-    connectionLimit: 10,
-    maxIdle: 10, // max idle connections, the default value is the same as `connectionLimit`
-    idleTimeout: 60000, // idle connections timeout, in milliseconds, the default value 60000
-    queueLimit: 0,
-    enableKeepAlive: true,
-    keepAliveInitialDelay: 0
-  });
-uService = new UserService(db_pool);
-rService = new RoomService(db_pool);
-mService = new MessageService(db_pool);
+
+uService = new UserService();
+rService = new RoomService();
+mService = new MessageService();
 wss.on('connection',(ws,req)=> {
     ws.on('error', console.error);
     const ip = req.socket.remoteAddress;
@@ -226,6 +213,6 @@ async function addUserToRoom(userToken,otherUserID,roomID)
     db_pool.promise().query("INSERT INTO room_users (ROOM_ID, USER_ID) VALUES (?)",[[roomID,otherUserID]])
     .then(([result,error])=> {if(error) throw error;} )
 }
-console.log("wss up");
+console.log("server up");
 
 // :)

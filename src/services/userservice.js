@@ -1,18 +1,9 @@
-const MySql = require('mysql2');
+var mysqlpool = require('../mysqlconnector');
+
 class UserService {
-    constructor(pool)
+    constructor()
     {
-        this.pool = pool|| MySql.createPool({
-            host: process.env.DB_HOST||'localhost',
-            user: process.env.DB_USER||'root',
-            database: process.env.DB_NAME||'chatdb',
-            waitForConnections: true,
-            connectionLimit: 10,
-            idleTimeout: 60000, // idle connections timeout, in milliseconds, the default value 60000
-            queueLimit: 0,
-            enableKeepAlive: true,
-            keepAliveInitialDelay: 0
-          });
+        this.pool = mysqlpool
     }
     async getUser(username, password)
     {

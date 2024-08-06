@@ -1,0 +1,38 @@
+services:
+
+  app: # Имя сервиса
+    build:
+      # Контекст для сборки образа,
+      # в данном случае, текущая директория
+      context: .
+      # Имя Docker-файла из которого будет собран образ
+      dockerfile: Dockerfile
+      # Команда, которая будет выполнена после старта сервиса
+    command: npm run start
+    ports: 
+    - 8000:8000
+    env_file: app.env
+    # Перечисляем тома (volumes)
+    # Они будут подключены к файловой системе сервиса
+    # Например, все что находится в . мы увидим в директории /app
+    volumes:
+      # Текущая директория пробрасывается в директорию /app внутри контейнера
+      # Путь внутри контейнера (после двоеточия) обязательно должен быть абсолютным
+      - ".:/app"
+    # Сервис будет запущен, только после старта db
+    depends_on:
+      - mysql
+    restart: always
+
+  mysql:
+    container_name: mysql
+    image: mysql:5.7
+    restart: always
+    env_file: mysql.env
+    volumes:
+      - ./db_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports: 
+    - 3306:3306
+volumes:
+  db_data:
