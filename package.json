@@ -1,20 +1,61 @@
 {
     
+
+
   "name": "server",
+    
+
+
   "version": "1.0.0",
+    
+
+
   "description": "",
+    
+
+
   "main": "server.jsx",
+    
+
+
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    
+
+
+      
+
+
+  "start": "node src/server.js"
+    
+
+
   },
+    
+
+
   "author": "",
+    
+
+
   "license": "ISC",
+    
+
+
   "dependencies": {
-    "mysql2": "^3.6.0",
-    "mysql":"2.18.1",
-    "ws": "^8.13.0"
-  },
-  "scripts": {
-    "start": "node src/server.js"
+  "crypto": "latest",
+  "moment": "^2.30.1",
+  "mongoose": "latest",
+  "mysql": "2.18.1",
+  "mysql2": "^3.6.0",
+    
+
+
+      
+
+
+  "ws": "^8.13.0"
+    
+
+
   }
 }

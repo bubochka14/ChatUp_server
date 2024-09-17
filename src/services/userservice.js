@@ -1,37 +1,61 @@
 var mysqlpool = require('../mysqlconnector');
-
+var randomstring = require('../tools/randomstring')
+var objectToSQLString = require('../tools/objectToSQLString')
 class UserService {
     constructor()
     {
         this.pool = mysqlpool
     }
-    async getUser(username, password)
+    async getUser(id)
     {
-        if(typeof username == "undefined") 
-            return this.pool.promise().query('SELECT * FROM users')
-        .then(([rows,fields])=> {return rows;} );
-        if(typeof password == "undefined")
-            return this.pool.promise().query('SELECT * FROM users WHERE USERNAME = ?',username)
-        .then(([rows,fields])=> {return rows;} );
-        else 
-            return this.pool.promise().query('SELECT * FROM users W WHERE USERNAME = ? AND PASSWORD = ?',
-        [username, password]).then(([rows,fields])=> {return rows;} );
+        if(typeof id == "undefined") 
+        {
+            let [users] = await mysqlpool.promise().query('SELECT * FROM users')
+            return users;
+        }
+        let [[user]] = await mysqlpool.promise().query('SELECT * FROM users WHERE id = ?',id)
+        return user
     }
-    async getUserById(id)
+    async getUserByLogin(login)
+    {
+        if(typeof login == "undefined") throw new TypeError("Invalid login argument");
+        let [[user]] = await mysqlpool.promise().query('SELECT * FROM users WHERE login = ?', login)
+        return user
+    }
+    async addUser(login, password, username = "user-"+randomstring(8))
+    {
+        if(login == undefined || password == undefined)
+            throw new TypeError("Invalid login or password argument")
+        let [res] = await mysqlpool.promise().query
+        ("INSERT INTO users (login,name,password) VALUES (?)",
+        [[login,username,password]]);
+        return this.getUser(res.insertId)
+    }
+    async updateUser(userinfo)
+    {
+        if(userinfo == undefined)
+            throw new TypeError("Invalid userinfo argument")
+        if(userinfo.id = undefined)
+            throw new TypeError("Userinfo doesnt contain id field")
+        let [[user]] = await mysqlpool.promise().query("UPDATE users SET " + 
+            objectToSQLString(userinfo) +" WHERE id = ?",userinfo.id)
+        return user;
+    }
+    async deleteUser(id)
     {
         if(typeof id == "undefined" || isNaN(id)) throw new TypeError("Invalid id argument");
-        return this.pool.promise().query('SELECT * FROM users WHERE ID = ' +id).then(([rows,fields])=> {return rows[0];} );
-    }
-    async addUser(username, password)
-    {
-        return this.pool.promise().query("INSERT INTO users (USERNAME,PASSWORD) VALUES (?)",[[username,password]]);
+        let [[user]] = await mysqlpool.promise().query("DELETE FROM users WHERE id = ?",id)
+        return user;
     }
     async getUserRooms(id) 
     {
         if(typeof id == "undefined" || isNaN(id))
             throw new TypeError("User id is undefined");
-        return this.pool.promise().query("select rooms.* from room_users JOIN rooms ON room_users.ROOM_ID = rooms.ID where room_users.USER_ID ="+id)
-        .then(([rows,fields])=> {return rows;} );;
+        let [res] = await mysqlpool.promise().query("select rooms.* from room_users JOIN rooms ON \
+            room_users.roomId = rooms.id where room_users.userId =?",id);
+
+        return res
     }
+
 }
 module.exports = UserService

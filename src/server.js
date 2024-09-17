@@ -1,5 +1,5 @@
-// сделанный на коленке сервер на вебоскетах для месенджера, без поддержки rest 
 const WebSocket  = require('ws');
+const moment = require('moment');
 
 const SendableError = require('./components/SendableError.js')
 const RoomService = require('./services/roomservice.js')
@@ -7,6 +7,7 @@ const UserService = require('./services/userservice.js');
 const MessageService = require('./services/messageservice.js');
 
 const wss = new WebSocket.Server({port:8000,clientTracking:true})
+
 
 authorizedUsers = new Map();
 serverMethods   = new Map();
@@ -22,10 +23,12 @@ serverMethods.set(getUserRooms.name, getUserRooms);
 serverMethods.set(sendChatMessage.name, sendChatMessage);
 serverMethods.set(getRoomHistory.name, getRoomHistory);
 serverMethods.set(getRoomUsers.name, getRoomUsers); 
+serverMethods.set(createRoom.name, createRoom); 
 
 uService = new UserService();
 rService = new RoomService();
 mService = new MessageService();
+
 wss.on('connection',(ws,req)=> {
     ws.on('error', console.error);
     const ip = req.socket.remoteAddress;
@@ -47,171 +50,158 @@ wss.on('connection',(ws,req)=> {
     });
 });
 
-function sendSuccessResponse(ws,to,data)
+function sendSuccessResponse(ws,to,returnValue)
 {
-    data = data||{};
-    data.status = "success";
-    data.responseTo = to;
-    sendResponse(ws,to,data);
+    console.log("to",to)
+    let data ={
+        "return": returnValue||{},
+        "status": "success",
+        "responseTo":to
+    }
+    sendResponse(ws,data);
 }
 function sendBadResponse(ws,responseTo,error="")
 {
-    var responseData = {status:"error", errorString:error};
-    sendResponse(ws,responseTo,responseData);
+    let data ={
+        "errorString":error,
+        "status": "error",
+        "responseTo":responseTo
+    }
+    sendResponse(ws,data);
 }
-function sendResponse(ws,to, data)
+function sendResponse(ws, data)
 {
-    var response = {type: "response", data: data?data:{},messageID:3, ApiVersion:"1.0"};
-    response.data.responseTo = to;
+    console.log("data",data)
+    var response = {type: "response", data: data?data:{},messageID:3, ApiVersion:"1.1"};
     console.log("response", response);
     ws.send(JSON.stringify(response));
 }
-function handleMethodCall(req,ws)
+async function handleMethodCall(req,ws)
 {       
     method = req.data.method;
-    args   = req.data.args;
-    messageID = req.messageID
-    console.log("arg",args);
-    if(method == "registerUser" || method == "loginUser")
-    {
-        args.push(ws);
-    }
     if(!serverMethods.has(method))
     {
-        sendBadResponse(ws,messageID,"Unknown method received: "+ method);
+        sendBadResponse(ws,req.messageID,"Unknown method received: "+ method);
         return;
     }
-    serverMethods.get(method).apply(null,args)
-    .then(result => {sendSuccessResponse(ws,messageID,result)}
-    , error=> {
+    try
+    {
+        var res = await serverMethods.get(method)(ws,req.data.args)
+        sendSuccessResponse(ws,req.messageID,res)
+    }
+    catch(error){
     if(error.sendToUser)
-        sendBadResponse(ws,messageID,error.sendToUser);
+        sendBadResponse(ws,req.messageID,error.sendToUser);
     else 
-        sendBadResponse(ws,messageID,"Server error");
+        sendBadResponse(ws,req.messageID,"Server error");
         console.log(error);
-    });
+    };
 }
-
-function uuidv4() {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-      var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    });
-}
-async function loginUser(username, password,ws)
+async function loginUser(ws,data)
 {
-    if(!username || !password || username ==" " || password =="")
+    if(!data.login || !data.password || data.login ==" " || data.password =="")
         throw new SendableError("EmptyCredentials","Attempt to login with null credentials");
-    return uService.getUser(username,password)    
-    .then(users => {
-        if(users.length == 0)
-            throw new SendableError("invalidCredentials","Attempt to login with invalid credentials")
-        user = users[0];
-        generatedToken = uuidv4();
-        authorizedUsers.set(generatedToken,{socket:ws, username: username, id:user.ID});
-        console.log("Logged user with token " + generatedToken+ " and id: ",user.ID);
-        ws.on("close", close => {
-            console.log("User deleted with token ",generatedToken);
-            authorizedUsers.delete(generatedToken)
-        }
-            );
-        return {userToken:generatedToken};
+    let user = await uService.getUserByLogin(data.login) 
+    if(user == undefined || user.password != data.password)
+        throw new SendableError("InvalidCredentials","Attempt to login with invalid credentials")
+    authorizedUsers.set(ws,{id:user.id});
+    console.log("Logged " + user.name+ " id: ",user.id);
+    ws.on("close", close => {
+        authorizedUsers.delete(ws)
+        console.log("Deleted user ",user.name);
     });
+    return user;
 }
-async function registerUser(username, password,ws)
+async function registerUser(ws,data)
 {   
-    console.log("mysarg",[username,password]);
-    if(!username || !password || username ==" " || password =="")
+    if(!data.login || !data.password || data.login =="" || data.password =="")
         throw new SendableError("EmptyCredentials","Attempt to register with null credentials");
-    return uService.getUser(username)     
-    .then(result => {
-        if(result.length > 0)
-            throw new SendableError("reregistration","Attempt to register with existed username")
-        return uService.addUser(username,password)
+    let user = await uService.getUserByLogin(data.login)     
+    if(user != undefined)
+        throw new SendableError("Reregistration","Attempt to register with existed login")
+    user = await uService.addUser(data.login,data.password,data.login)
+    authorizedUsers.set(ws,{"id": user.id});
+    console.log("Registred new user " + user.name+ " id: ",user.id);
+    ws.on("close", close => {
+        console.log("Deleted user ",user.name);
+        authorizedUsers.delete(ws)
     })
-    .then(([result,error]) => {
-        console.log("result", result);
-        generatedToken = uuidv4();
-        id = result.insertId;
-        authorizedUsers.set(generatedToken,{socket:ws, username: username,id: id});
-        console.log("Registred new user with token " + generatedToken+ " and id: ",id);
-        addUserToRoom(generatedToken,id,1);
-        addUserToRoom(generatedToken,id,2);
-        ws.on("close", close => {
-            console.log("User deleted with token ",generatedToken);
-            authorizedUsers.delete(generatedToken)
-        }
-            );
-
-        return {userToken:generatedToken};
-    });
+    await putToStartRoom(user.id)
+    return user;
 }
-
-
-function getRoomUsers(roomID)
+async function getStartRoom()
 {
-    return rService.getRoomUsers(roomID)
-    .then(results=>{
-        console.log(results)
-        return {users: results}}
-    );
+    let room = await rService.getRoomByTag("NewUsers")
+    if(room == undefined)
+    {
+        room = await rService.addRoom("New Users","NewUsers")
+        return room
+    }
+    return room
 }
-async function getUserRooms(id)
+async function putToStartRoom(UserID)
 {
-
-    return uService.getUserRooms(id)
-    .then(results=>{
-        console.log(results)
-        return {rooms: results}}
-    );
+   let startRoom = await getStartRoom();
+   return rService.addUserToRoom(startRoom.id, UserID)
 }
-async function getRoomHistory(userToken,roomID)
+async function getRoomUsers(ws,data)
 {
-    return mService.getMessagesHistory(roomID)
-    .then(results=>{
-        return {messages: results}
-    });
+    return await rService.getRoomUsers(data.id)
 }
-async function getUserInfo(username)
+async function getUserRooms(ws,data)
+{
+    return await uService.getUserRooms(data.id)
+}
+async function getRoomHistory(ws,data)
+{
+    return await mService.getMessage(data.roomId,data.id)
+}
+async function getUserInfo(ws,data)
+{
+    console.log("info")
+    return await uService.getUser(data.id)
+}
+async function getUserInfoById(ws,id)
 {
 }
-async function getUserInfoById(id)
+async function getCurrentUserInfo(ws,data)
 {
+    return await uService.getUser(authorizedUsers.get(ws).id)
 }
-async function getCurrentUserInfo(userToken)
+async function sendChatMessage(ws, data )
 {
-    if(!authorizedUsers.has(userToken))
-        throw new SendableError({sendToUser:"Unauthorized attempt get userInfo"});
-    return uService.getUserById(authorizedUsers.get(userToken).id)
-    .then(
-        result=>{
-            console.log(result)
-            return {id: result.ID, username: result.USERNAME}}
-        );
+    let mess = await mService.addMessage(data.roomId, authorizedUsers.get(ws).id)
+    mess.body = data.body; 
+    mess.time = moment(Date.now()).format('YYYY-MM-DD HH:mm:ss');
+    mess = await mService.updateMessage(mess);
+    mess.status = "sent"
+    broadcastMethodCall("postMessage",mess,ws)
+    return mess;
 }
-async function sendChatMessage(userToken, roomID,chatMessage )
+async function clientMethodCall(ws,method,args)
 {
-    return mService.createMessage(roomID,chatMessage, authorizedUsers.get(userToken).id)
-    .then((result)=>{return clientMethodCall([roomID,result]);} );
+    if(ws==undefined || method == undefined)
+        throw new Error("Websocket or method is not specified")
+    console.log("methodcall",JSON.stringify({type: "methodCall",data:{method:method,args:args}}));
+    ws.send(JSON.stringify({type: "methodCall",data:{method:method,args:args}}))
 }
-async function clientMethodCall(args,messdata)
-{
-    var call = {type: "methodCall",data:{args:args}};
-    console.log("DEBUG: SOCKETS COUNT ", authorizedUsers.size)
+async function broadcastMethodCall(method, args,except) {
     authorizedUsers.forEach((value,key) => {
-        value.socket.send(JSON.stringify(call))
+        if(key != except)
+            clientMethodCall(key,method,args)
     });
 }
-async function addUserToRoom(userToken,otherUserID,roomID)
+async function createRoom(ws, data)
 {
-    console.log(userToken);
-    if(!authorizedUsers.has(userToken))
-        throw new Error({sendToUser:"Unauthorized attempt to add user to room"});
-    if( isNaN(otherUserID) ||  isNaN(roomID))
-        throw "RoomID or UserID unspecified";
-
-    db_pool.promise().query("INSERT INTO room_users (ROOM_ID, USER_ID) VALUES (?)",[[roomID,otherUserID]])
-    .then(([result,error])=> {if(error) throw error;} )
+    let room = await rService.addRoom(data.name)
+    await addUserToRoom(ws,authorizedUsers.get(ws).id,room.id)
+    return room
+}
+async function addUserToRoom(ws,userID,roomID)
+{
+    // if(!authorizedUsers.has(userToken))
+    //     throw new Error({sendToUser:"Unauthorized attempt to add user to room"});
+    return await rService.addUserToRoom(roomID,userID)
 }
 console.log("server up");
 

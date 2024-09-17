@@ -1,40 +1,37 @@
 var mysqlpool = require('../mysqlconnector');
+var objectToSQLString = require('../tools/objectToSQLString')
 
 class MessageService
 {
- 
-    constructor()
+    async addMessage(roomID, userID)
     {
-        this.pool = mysqlpool;
+        let [result]=  await mysqlpool.promise().query("INSERT INTO room_messages \
+            (userId, roomId) VALUES (?)",[[userID, roomID]])
+        let [[message]] = await mysqlpool.promise().query("SELECT * from room_messages WHERE id =?",result.insertId);
+        return message
+    };
+    async getMessage(roomId,id)
+    {
+        if(id == undefined)
+        { 
+            let [messages]=  await mysqlpool.promise().query("SELECT * FROM room_messages \
+            WHERE roomId=? ORDER BY time DESC",roomId)
+            return messages
+        }
+        let [[message]]=  await mysqlpool.promise().query("SELECT * FROM room_messages \
+            WHERE roomId=? AND id =",roomId,id)
+            return message
     }
-    async createMessage(roomID, messageBody, userID)
+    async updateMessage(messageInfo)
     {
-        return this.pool.promise().query("INSERT INTO room_messages (body,userID, roomID) VALUES (?)",[[messageBody,userID, roomID]])
-        .then(([{insertId,...rest},e]) => {
-            console.log("RESULT",insertId);
-            return this.pool.promise().query("SELECT room_messages.*, users.username FROM room_messages join users ON users.id=room_messages.userID where room_messages.id ="+insertId)})
-        .then(([rows,fields]) => {
-            var newuser = rows[0];
-            newuser.user = {name: newuser.username, id: newuser.userID}
-                delete newuser.username;
-                delete newuser.userID;
-                return newuser;
-            });
-
-
-    }
-    async getMessagesHistory(roomID)
-    {
-        return this.pool.promise().query("SELECT room_messages.*, users.username FROM room_messages join users ON users.id=room_messages.userID where roomId ="+roomID)
-        .then(([rows,fields]) => {
-            rows.forEach((elem)=>
-            {
-                elem.user = {name: elem.username, id: elem.userID}
-                delete elem.username;
-                delete elem.userID;
-            });
-            return rows
-        });
+        if(messageInfo == undefined)
+            throw new TypeError("Invalid userinfo argument")
+        if(messageInfo.id == undefined)
+            throw new TypeError("Message doesnt contain id field")
+        await mysqlpool.promise().query("UPDATE room_messages SET " + 
+            objectToSQLString(messageInfo) +" WHERE id = ? AND roomId =?",[messageInfo.id,messageInfo.roomId])
+        let [[message]] = await mysqlpool.promise().query("SELECT * from room_messages WHERE id =?",messageInfo.id);
+        return message;
     }
 }
 module.exports = MessageService
