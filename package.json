@@ -1,61 +1,19 @@
 {
-    
-
-
   "name": "server",
-    
-
-
   "version": "1.0.0",
-    
-
-
   "description": "",
-    
-
-
   "main": "server.jsx",
-    
-
-
   "scripts": {
-    
-
-
-      
-
-
   "start": "node src/server.js"
-    
-
-
-  },
-    
-
-
+    },
   "author": "",
-    
-
-
   "license": "ISC",
-    
-
-
+  "type": "module",
   "dependencies": {
-  "crypto": "latest",
-  "moment": "^2.30.1",
-  "mongoose": "latest",
-  "mysql": "2.18.1",
-  "mysql2": "^3.6.0",
-    
-
-
-      
-
-
-  "ws": "^8.13.0"
-    
-
-
+    "crypto": "latest",
+    "moment": "^2.30.1",
+    "mysql": "2.18.1",
+    "mysql2": "^3.6.0",
+    "ws": "^8.13.0"
   }
 }

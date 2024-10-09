@@ -1,33 +1,41 @@
-const WebSocket  = require('ws');
-const moment = require('moment');
+import WebSocket, { WebSocketServer } from 'ws';
+import moment from 'moment'
 
-const SendableError = require('./components/SendableError.js')
-const RoomService = require('./services/roomservice.js')
-const UserService = require('./services/userservice.js');
-const MessageService = require('./services/messageservice.js');
+import SendableError from './components/SendableError.js'
+import UserService from './services/userservice.js'
+import MessageService from './services/messageservice.js'
+import RoomService from './services/roomservice.js'
 
-const wss = new WebSocket.Server({port:8000,clientTracking:true})
+const wss = new WebSocketServer({port:8000,clientTracking:true})
 
-
-authorizedUsers = new Map();
-serverMethods   = new Map();
-authorizedUsers = new Map();
+var authorizedUsers     = new Map()
+var serverMethods       = new Map()
+var idToWs              = new Map()
+var userRoomsCache ={}
+var authorizedInRooms ={}
 
 serverMethods.set(registerUser.name, registerUser);
 serverMethods.set(loginUser.name, loginUser);
+serverMethods.set(getUser.name, getUser);
 serverMethods.set(addUserToRoom.name, addUserToRoom);
-serverMethods.set(getUserInfo.name, getUserInfo);
-serverMethods.set(getUserInfoById.name, getUserInfoById);
+serverMethods.set(findUsers.name, findUsers);
 serverMethods.set(getCurrentUserInfo.name, getCurrentUserInfo);
 serverMethods.set(getUserRooms.name, getUserRooms);
 serverMethods.set(sendChatMessage.name, sendChatMessage);
 serverMethods.set(getRoomHistory.name, getRoomHistory);
 serverMethods.set(getRoomUsers.name, getRoomUsers); 
 serverMethods.set(createRoom.name, createRoom); 
+serverMethods.set(updateMessage.name,updateMessage)
+serverMethods.set(getReadMessagesCount.name,getReadMessagesCount)
+serverMethods.set(setReadMessagesCount.name,setReadMessagesCount)
+var userService = new UserService();
+var roomService = new RoomService();
+var messageService = new MessageService();
 
-uService = new UserService();
-rService = new RoomService();
-mService = new MessageService();
+await userService.init()
+await messageService.init()
+await roomService.init()
+
 
 wss.on('connection',(ws,req)=> {
     ws.on('error', console.error);
@@ -49,10 +57,35 @@ wss.on('connection',(ws,req)=> {
         }
     });
 });
+async function authorizeUser(ws,user)
+{
+    let rooms = await roomService.getUserRooms({userID:user.id,format:'minimal'})
+    authorizedUsers.set(ws,{id: user.id});
+    if(userRoomsCache[user.id] == undefined)
+    {
+        userRoomsCache[user.id] = new Set(rooms)
+    }
+    rooms.forEach(room => {
+        if(authorizedInRooms[room.id] == undefined)
+            authorizedInRooms[room.id] = new Set
+        authorizedInRooms[room.id].add(user.id)
 
+    });
+    idToWs.set(user.id,ws);
+
+}
+function forgetUser(user) {
+    let ws = idToWs[user.id]
+    userRoomsCache[user.id].forEach(roomID=>
+    {    if(authorizedInRooms[roomID]!= undefined)
+           authorizedInRooms[roomID].delete(user.id)
+    }
+    )
+    authorizedUsers.delete(ws)
+    idToWs.delete(user.id)
+}
 function sendSuccessResponse(ws,to,returnValue)
 {
-    console.log("to",to)
     let data ={
         "return": returnValue||{},
         "status": "success",
@@ -78,7 +111,7 @@ function sendResponse(ws, data)
 }
 async function handleMethodCall(req,ws)
 {       
-    method = req.data.method;
+    var method = req.data.method;
     if(!serverMethods.has(method))
     {
         sendBadResponse(ws,req.messageID,"Unknown method received: "+ method);
@@ -101,13 +134,13 @@ async function loginUser(ws,data)
 {
     if(!data.login || !data.password || data.login ==" " || data.password =="")
         throw new SendableError("EmptyCredentials","Attempt to login with null credentials");
-    let user = await uService.getUserByLogin(data.login) 
-    if(user == undefined || user.password != data.password)
+    if(!await userService.validate(data.login, data.password))
         throw new SendableError("InvalidCredentials","Attempt to login with invalid credentials")
-    authorizedUsers.set(ws,{id:user.id});
+    let user = await userService.getUserByLogin(data.login)
+    await authorizeUser(ws,user)
     console.log("Logged " + user.name+ " id: ",user.id);
     ws.on("close", close => {
-        authorizedUsers.delete(ws)
+        forgetUser(user)
         console.log("Deleted user ",user.name);
     });
     return user;
@@ -116,66 +149,110 @@ async function registerUser(ws,data)
 {   
     if(!data.login || !data.password || data.login =="" || data.password =="")
         throw new SendableError("EmptyCredentials","Attempt to register with null credentials");
-    let user = await uService.getUserByLogin(data.login)     
+    let user = await userService.getUserByLogin(data.login)     
     if(user != undefined)
         throw new SendableError("Reregistration","Attempt to register with existed login")
-    user = await uService.addUser(data.login,data.password,data.login)
-    authorizedUsers.set(ws,{"id": user.id});
+    data.name = data.login
+    user = await userService.addUser(data)
+    await authorizeUser(ws,user)
     console.log("Registred new user " + user.name+ " id: ",user.id);
     ws.on("close", close => {
+        forgetUser(user)
         console.log("Deleted user ",user.name);
-        authorizedUsers.delete(ws)
     })
     await putToStartRoom(user.id)
     return user;
 }
+async function setReadMessagesCount(ws, data)
+{
+    let res = await messageService.getReadMessagesCount(data.roomID,authorizedUsers.get(ws).id)
+    await messageService.setReadMessagesCount(data.roomID,authorizedUsers.get(ws).id,data.count)
+    if(res.maxCount<data.count)
+    {
+        authorizedInRooms[data.roomID].forEach(userID =>
+        {
+            let client = idToWs.get(userID)
+            if(ws !=client)
+                clientMethodCall(client,"updateReadCount",{maxCount:data.count, roomID: data.roomID})
+        })
+    }
+}
+
+async function getReadMessagesCount(ws, data)
+{
+    return await messageService.getReadMessagesCount(data.roomID,data.userID||authorizedUsers.get(ws).id)
+}
+async function updateMessage(ws,data) {
+    let mess= messageService.updateMessage(data)
+    authorizedInRooms[mess.roomID].forEach(userID =>
+    {
+        let client = idToWs.get(userID)
+        if(ws !=client)
+            clientMethodCall(client,"updateMessage",mess)
+
+    }
+    )
+    return mess;
+}
+async function getUser(ws,data)
+{
+    return userService.getUser(data.id)
+}
 async function getStartRoom()
 {
-    let room = await rService.getRoomByTag("NewUsers")
+    let room = await roomService.getRoomByTag("NewUsers")
     if(room == undefined)
     {
-        room = await rService.addRoom("New Users","NewUsers")
+        room = await roomService.addRoom({type: "group",tag:"NewUsers",name:"New Users"})
         return room
     }
     return room
 }
-async function putToStartRoom(UserID)
+async function putToStartRoom(userID)
 {
    let startRoom = await getStartRoom();
-   return rService.addUserToRoom(startRoom.id, UserID)
+   await roomService.addUserToRoom(startRoom.id, userID)
+   userRoomsCache[userID].add(startRoom.id)
+   if(authorizedInRooms[startRoom.id] == undefined)
+        authorizedInRooms[startRoom.id] = new Set()
+   authorizedInRooms[startRoom.id].add(userID)
 }
 async function getRoomUsers(ws,data)
 {
-    return await rService.getRoomUsers(data.id)
+    // return await roomService.getRoomUsers(data.id)
 }
 async function getUserRooms(ws,data)
 {
-    return await uService.getUserRooms(data.id)
+    return await roomService.getUserRooms(data)
 }
+
 async function getRoomHistory(ws,data)
 {
-    return await mService.getMessage(data.roomId,data.id)
+    return await messageService.findMessages(data)
 }
-async function getUserInfo(ws,data)
+
+async function findUsers(ws,data)
 {
-    console.log("info")
-    return await uService.getUser(data.id)
+    return await userService.findUsers(data)
 }
-async function getUserInfoById(ws,id)
-{
-}
+
 async function getCurrentUserInfo(ws,data)
 {
-    return await uService.getUser(authorizedUsers.get(ws).id)
+    return await userService.getUser(authorizedUsers.get(ws).id)
 }
+
 async function sendChatMessage(ws, data )
 {
-    let mess = await mService.addMessage(data.roomId, authorizedUsers.get(ws).id)
+    let mess = await messageService.addMessage({roomID: data.roomID,userID: authorizedUsers.get(ws).id})
     mess.body = data.body; 
     mess.time = moment(Date.now()).format('YYYY-MM-DD HH:mm:ss');
-    mess = await mService.updateMessage(mess);
+    mess = await messageService.updateMessage(mess);
     mess.status = "sent"
-    broadcastMethodCall("postMessage",mess,ws)
+    authorizedInRooms[mess.roomID].forEach(userID=>{
+        if(mess.userID != userID && idToWs.get(userID)!= undefined)
+            
+            clientMethodCall(idToWs.get(userID),"postMessage",mess)
+    })
     return mess;
 }
 async function clientMethodCall(ws,method,args)
@@ -193,16 +270,25 @@ async function broadcastMethodCall(method, args,except) {
 }
 async function createRoom(ws, data)
 {
-    let room = await rService.addRoom(data.name)
-    await addUserToRoom(ws,authorizedUsers.get(ws).id,room.id)
+    let room = await roomService.addRoom(data)
+    userRoomsCache[authorizedUsers.get(ws).id].add(room.id)
+    authorizedInRooms[room.id] = new Set()
+    await roomService.addUserToRoom(room.id,authorizedUsers.get(ws).id)
+    authorizedInRooms[room.id].add(authorizedUsers.get(ws).id)
     return room
 }
-async function addUserToRoom(ws,userID,roomID)
+async function addUserToRoom(ws,data)
 {
-    // if(!authorizedUsers.has(userToken))
-    //     throw new Error({sendToUser:"Unauthorized attempt to add user to room"});
-    return await rService.addUserToRoom(roomID,userID)
+    await roomService.addUserToRoom(data.roomID,data.userID)
+    userRoomsCache[authorizedUsers.get(ws).id].add(data.roomID)
+    if(idToWs.has(data.userID))
+        {
+            authorizedInRooms[data.roomID].add(data.userID)
+            if(idToWs.get(data.userID)!= undefined)
+                clientMethodCall(idToWs.get(data.userID),"addRoom",await roomService.getRoom(data.roomID))
+        }
 }
 console.log("server up");
 
 // :)
+1

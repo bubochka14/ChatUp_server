@@ -1,5 +1,5 @@
-const crypto = require("crypto");
+import crypto from "crypto"
 function randomString(size) {
   return crypto.randomBytes(size).toString("base64url");
 }
-module.exports = randomString;
+export default randomString;

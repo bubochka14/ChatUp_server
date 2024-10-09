@@ -1,4 +1,4 @@
-var mysql = require('mysql2');
+import mysql from 'mysql2'
 // Initialize pool
 var mysqlpool = mysql.createPool({
         host: process.env.DB_HOST||'localhost',
@@ -15,4 +15,4 @@ var mysqlpool = mysql.createPool({
         keepAliveInitialDelay: 0
 }); 
 
-module.exports = mysqlpool;
+export default  mysqlpool;
