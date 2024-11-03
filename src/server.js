@@ -74,15 +74,22 @@ async function authorizeUser(ws,user)
     idToWs.set(user.id,ws);
 
 }
-function forgetUser(user) {
-    let ws = idToWs[user.id]
-    userRoomsCache[user.id].forEach(roomID=>
-    {    if(authorizedInRooms[roomID]!= undefined)
-           authorizedInRooms[roomID].delete(user.id)
+function forgetUser(user,ws) {
+    userRoomsCache[user.id].forEach(room=>
+    {   
+        if(authorizedInRooms[room.id]!= undefined)
+        {
+           authorizedInRooms[room.id].delete(user.id)
+
+        }
     }
     )
     authorizedUsers.delete(ws)
     idToWs.delete(user.id)
+    delete userRoomsCache[user.id]
+    console.log("Deleted user",user.name,"id",user.id);
+    console.log(authorizedUsers,idToWs)
+
 }
 function sendSuccessResponse(ws,to,returnValue)
 {
@@ -140,8 +147,7 @@ async function loginUser(ws,data)
     await authorizeUser(ws,user)
     console.log("Logged " + user.name+ " id: ",user.id);
     ws.on("close", close => {
-        forgetUser(user)
-        console.log("Deleted user ",user.name);
+        forgetUser(user,ws)
     });
     return user;
 }
@@ -157,8 +163,7 @@ async function registerUser(ws,data)
     await authorizeUser(ws,user)
     console.log("Registred new user " + user.name+ " id: ",user.id);
     ws.on("close", close => {
-        forgetUser(user)
-        console.log("Deleted user ",user.name);
+        forgetUser(user,ws)
     })
     await putToStartRoom(user.id)
     return user;

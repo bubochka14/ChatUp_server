@@ -71,7 +71,7 @@ async init()
         res = res||{}
         console.log('res',roomID)
         let [[maxCountRes]] = await mysqlpool.promise().query(`SELECT MAX(count) as maxCount\
-             FROM message_readings WHERE roomID = ${roomID}`) || [[{}]]
+             FROM message_readings WHERE roomID = ${roomID} AND userID != ${userID}`) || [[{}]]
         res.userCount = res.userCount? res.userCount:0
         res.maxCount = maxCountRes.maxCount?maxCountRes.maxCount:0
         return res
