@@ -118,9 +118,13 @@ class RoomService
             FROM room_info \
             LEFT JOIN room_users ON room_info.id = room_users.roomID \
             LEFT JOIN group_rooms ON room_info.id = group_rooms.roomID\
-            LEFT JOIN message_readings ON room_info.id = message_readings.roomID AND room_users.userID =message_readings.userID\
+            left join (SELECT roomID, count(distinct id) as messageCount\
+            from room_messages group by roomID) m ON m.roomID = group_rooms.roomID\
+            LEFT JOIN message_readings ON room_info.id = message_readings.roomID\
+            AND room_users.userID =message_readings.userID\
             WHERE`+ (searchString!=""? `${searchString} AND`:"")+` room_users.userID = ?`
             +(!isNaN(pattern.limit)?` LIMIT ${pattern.limit}`:""),pattern.userID);
+        
         return res
     }
     async findRooms(pattern)

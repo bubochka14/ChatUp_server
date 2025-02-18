@@ -57,5 +57,22 @@ CREATE TABLE IF NOT EXISTS message_readings(
     FOREIGN KEY (userID) REFERENCES user_info (id)
         ON DELETE CASCADE,
     primary key (roomID, userID)
-
+);
+CREATE TABLE IF NOT EXISTS group_roles(
+    id INT,
+    name VARCHAR(100)
+        CHARACTER SET utf8,
+    primary key (id)
+);
+CREATE TABLE IF NOT EXISTS user_group_roles(
+    roomID INT,
+    userID INT,
+    roleID  INT,
+    FOREIGN KEY (roomID) REFERENCES room_info (id)
+        ON DELETE CASCADE,
+    FOREIGN KEY (userID) REFERENCES user_info (id)
+        ON DELETE CASCADE,
+    FOREIGN KEY (roleID) REFERENCES group_roles (id)
+        ON DELETE CASCADE,
+    primary key (roomID, userID, roleID)
 );

@@ -69,12 +69,20 @@ async init()
             FROM message_readings \
             WHERE roomID =? AND userID = ?",[roomID, userID])
         res = res||{}
-        console.log('res',roomID)
         let [[maxCountRes]] = await mysqlpool.promise().query(`SELECT MAX(count) as maxCount\
              FROM message_readings WHERE roomID = ${roomID} AND userID != ${userID}`) || [[{}]]
         res.userCount = res.userCount? res.userCount:0
         res.maxCount = maxCountRes.maxCount?maxCountRes.maxCount:0
         return res
     }
+    async getByIndex(from,to,roomID)
+    {
+        let [res]= await mysqlpool.promise().query(
+            `SELECT * \
+            FROM room_messages \
+            WHERE messageIndex >=? AND messageIndex <= ? AND  roomID = ?`,[from,to,roomID])
+        return res
+    }
+
 }
 export default MessageService

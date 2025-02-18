@@ -1,19 +1,19 @@
 import WebSocket, { WebSocketServer } from 'ws';
 import moment from 'moment'
 
-import SendableError from './components/SendableError.js'
+import SendableError from './tools/SendableError.js'
 import UserService from './services/userservice.js'
 import MessageService from './services/messageservice.js'
 import RoomService from './services/roomservice.js'
+import CallController from '../controllers/callcontroller.js';
 
 const wss = new WebSocketServer({port:8000,clientTracking:true})
 
-var authorizedUsers     = new Map()
 var serverMethods       = new Map()
 var idToWs              = new Map()
 var userRoomsCache ={}
 var authorizedInRooms ={}
-
+let messageIDCounter = 0
 serverMethods.set(registerUser.name, registerUser);
 serverMethods.set(loginUser.name, loginUser);
 serverMethods.set(getUser.name, getUser);
@@ -28,10 +28,17 @@ serverMethods.set(createRoom.name, createRoom);
 serverMethods.set(updateMessage.name,updateMessage)
 serverMethods.set(getReadMessagesCount.name,getReadMessagesCount)
 serverMethods.set(setReadMessagesCount.name,setReadMessagesCount)
+serverMethods.set(getMessagesByIndex.name,getMessagesByIndex)
+serverMethods.set(joinCall.name,joinCall)
+serverMethods.set(disconnectCall.name,disconnectCall)
+serverMethods.set(RtcDescription.name,RtcDescription)
+serverMethods.set(RtcCandidate.name,RtcCandidate)
+
+
 var userService = new UserService();
 var roomService = new RoomService();
 var messageService = new MessageService();
-
+var callController = new CallController();
 await userService.init()
 await messageService.init()
 await roomService.init()
@@ -44,7 +51,7 @@ wss.on('connection',(ws,req)=> {
     ws.on('message',(messageAsString) => {
         if(!messageAsString)
             return
-        console.log("Message : \n"  + messageAsString )
+        //console.log("Message : \n"  + messageAsString )
         const message  = JSON.parse(messageAsString);
         switch(message.type)
         {
@@ -52,7 +59,7 @@ wss.on('connection',(ws,req)=> {
                 handleMethodCall(message,ws);
                 break;
             default : 
-                sendBadResponse(ws,"Unsupported message type: "+ message.type );
+                sendBadResponse(ws,message.id,"Unsupported message type: "+ message.type );
                 break;
         }
     });
@@ -60,7 +67,6 @@ wss.on('connection',(ws,req)=> {
 async function authorizeUser(ws,user)
 {
     let rooms = await roomService.getUserRooms({userID:user.id,format:'minimal'})
-    authorizedUsers.set(ws,{id: user.id});
     if(userRoomsCache[user.id] == undefined)
     {
         userRoomsCache[user.id] = new Set(rooms)
@@ -68,28 +74,29 @@ async function authorizeUser(ws,user)
     rooms.forEach(room => {
         if(authorizedInRooms[room.id] == undefined)
             authorizedInRooms[room.id] = new Set
-        authorizedInRooms[room.id].add(user.id)
-
-    });
+        authorizedInRooms[room.id].add(ws)
     idToWs.set(user.id,ws);
-
+    });
 }
 function forgetUser(user,ws) {
+    try{
     userRoomsCache[user.id].forEach(room=>
     {   
         if(authorizedInRooms[room.id]!= undefined)
         {
-           authorizedInRooms[room.id].delete(user.id)
+           authorizedInRooms[room.id].delete(ws)
 
         }
     }
-    )
-    authorizedUsers.delete(ws)
-    idToWs.delete(user.id)
+    )}
+    catch(e)
+    {
+        throw e;
+    }
     delete userRoomsCache[user.id]
-    console.log("Deleted user",user.name,"id",user.id);
-    console.log(authorizedUsers,idToWs)
+    idToWs.delete(user.id);
 
+    console.log("Deleted user",user.name,"id",user.id);
 }
 function sendSuccessResponse(ws,to,returnValue)
 {
@@ -111,9 +118,8 @@ function sendBadResponse(ws,responseTo,error="")
 }
 function sendResponse(ws, data)
 {
-    console.log("data",data)
     var response = {type: "response", data: data?data:{},messageID:3, ApiVersion:"1.1"};
-    console.log("response", response);
+    //console.log("response", response);
     ws.send(JSON.stringify(response));
 }
 async function handleMethodCall(req,ws)
@@ -126,7 +132,7 @@ async function handleMethodCall(req,ws)
     }
     try
     {
-        var res = await serverMethods.get(method)(ws,req.data.args)
+        var res = await serverMethods.get(method)(ws,req.data.args==undefined?{}:req.data.args)
         sendSuccessResponse(ws,req.messageID,res)
     }
     catch(error){
@@ -144,6 +150,7 @@ async function loginUser(ws,data)
     if(!await userService.validate(data.login, data.password))
         throw new SendableError("InvalidCredentials","Attempt to login with invalid credentials")
     let user = await userService.getUserByLogin(data.login)
+    ws.userID = user.id;
     await authorizeUser(ws,user)
     console.log("Logged " + user.name+ " id: ",user.id);
     ws.on("close", close => {
@@ -161,6 +168,7 @@ async function registerUser(ws,data)
     data.name = data.login
     user = await userService.addUser(data)
     await authorizeUser(ws,user)
+    ws.userID = user.id;
     console.log("Registred new user " + user.name+ " id: ",user.id);
     ws.on("close", close => {
         forgetUser(user,ws)
@@ -170,16 +178,11 @@ async function registerUser(ws,data)
 }
 async function setReadMessagesCount(ws, data)
 {
-    let res = await messageService.getReadMessagesCount(data.roomID,authorizedUsers.get(ws).id)
-    await messageService.setReadMessagesCount(data.roomID,authorizedUsers.get(ws).id,data.count)
+    let res = await messageService.getReadMessagesCount(data.roomID,ws.userID)
+    await messageService.setReadMessagesCount(data.roomID,ws.userID,data.count)
     if(res.maxCount<data.count)
     {
-        authorizedInRooms[data.roomID].forEach(userID =>
-        {
-            let client = idToWs.get(userID)
-            if(ws !=client)
-                clientMethodCall(client,"updateReadCount",{maxCount:data.count, roomID: data.roomID})
-        })
+        notifyRoom(data.roomID,"updateReadCount",{maxCount:data.count, roomID: data.roomID},ws)
     }
 }
 
@@ -188,20 +191,25 @@ async function getReadMessagesCount(ws, data)
     return await messageService.getReadMessagesCount(data.roomID,data.userID||authorizedUsers.get(ws).id)
 }
 async function updateMessage(ws,data) {
-    let mess= messageService.updateMessage(data)
-    authorizedInRooms[mess.roomID].forEach(userID =>
-    {
-        let client = idToWs.get(userID)
-        if(ws !=client)
-            clientMethodCall(client,"updateMessage",mess)
-
-    }
-    )
+    let mess = await messageService.updateMessage(data)
+    notifyRoom(mess.roomID,"updateMessage",mess,ws)
     return mess;
 }
+async function disconnectCall(ws, data)
+{
+    await callController.disconnect(ws.userID,data)
+    notifyRoom(data.roomID,"disconnectCall",{roomID: data.roomID, participate:ws.userID},ws)
+
+}
+async function joinCall(ws, data)
+{
+    await callController.join(ws.userID,data.roomID)
+    notifyRoom(data.roomID,"joinCall",{roomID: data.roomID, participate:ws.userID},ws)
+}
+
 async function getUser(ws,data)
 {
-    return userService.getUser(data.id)
+    return userService.getUser(data.id==undefined?ws.userID:data.id)
 }
 async function getStartRoom()
 {
@@ -228,12 +236,18 @@ async function getRoomUsers(ws,data)
 }
 async function getUserRooms(ws,data)
 {
+    if(data.userID == undefined)
+    data.userID = ws.userID
     return await roomService.getUserRooms(data)
 }
 
 async function getRoomHistory(ws,data)
 {
     return await messageService.findMessages(data)
+}
+async function getMessagesByIndex(ws,data)
+{
+    return await messageService.getByIndex(data.from, data.to,data.roomID)
 }
 
 async function findUsers(ws,data)
@@ -248,16 +262,12 @@ async function getCurrentUserInfo(ws,data)
 
 async function sendChatMessage(ws, data )
 {
-    let mess = await messageService.addMessage({roomID: data.roomID,userID: authorizedUsers.get(ws).id})
+    let mess = await messageService.addMessage({roomID: data.roomID,userID: ws.userID})
     mess.body = data.body; 
     mess.time = moment(Date.now()).format('YYYY-MM-DD HH:mm:ss');
     mess = await messageService.updateMessage(mess);
     mess.status = "sent"
-    authorizedInRooms[mess.roomID].forEach(userID=>{
-        if(mess.userID != userID && idToWs.get(userID)!= undefined)
-            
-            clientMethodCall(idToWs.get(userID),"postMessage",mess)
-    })
+    notifyRoom(mess.roomID,"postMessage",mess,ws)
     return mess;
 }
 async function clientMethodCall(ws,method,args)
@@ -265,7 +275,7 @@ async function clientMethodCall(ws,method,args)
     if(ws==undefined || method == undefined)
         throw new Error("Websocket or method is not specified")
     console.log("methodcall",JSON.stringify({type: "methodCall",data:{method:method,args:args}}));
-    ws.send(JSON.stringify({type: "methodCall",data:{method:method,args:args}}))
+    ws.send(JSON.stringify({messageID: messageIDCounter++,type: "methodCall",data:{method:method,args:args}}))
 }
 async function broadcastMethodCall(method, args,except) {
     authorizedUsers.forEach((value,key) => {
@@ -276,23 +286,59 @@ async function broadcastMethodCall(method, args,except) {
 async function createRoom(ws, data)
 {
     let room = await roomService.addRoom(data)
-    userRoomsCache[authorizedUsers.get(ws).id].add(room.id)
+    let userID = ws.userID;
+    userRoomsCache[userID].add(room.id)
     authorizedInRooms[room.id] = new Set()
-    await roomService.addUserToRoom(room.id,authorizedUsers.get(ws).id)
-    authorizedInRooms[room.id].add(authorizedUsers.get(ws).id)
+    await roomService.addUserToRoom(room.id,userID)
+    authorizedInRooms[room.id].add(userID)
     return room
 }
 async function addUserToRoom(ws,data)
 {
     await roomService.addUserToRoom(data.roomID,data.userID)
-    userRoomsCache[authorizedUsers.get(ws).id].add(data.roomID)
-    if(idToWs.has(data.userID))
+    let userID = ws.userID;
+
+    userRoomsCache[userID].add(data.roomID)
+    if(idToWs.has(userID))
         {
-            authorizedInRooms[data.roomID].add(data.userID)
-            if(idToWs.get(data.userID)!= undefined)
-                clientMethodCall(idToWs.get(data.userID),"addRoom",await roomService.getRoom(data.roomID))
+            let userWs = idToWs.get(userID);
+            authorizedInRooms[data.roomID].add(userWs)
+            clientMethodCall(userWs,"addRoom",await roomService.getRoom(data.roomID))
         }
 }
+async function RtcDescription(ws,data)
+{
+    if(idToWs.has(data.id)){
+        let userWs = idToWs.get(data.id);
+        data.id = ws.userID
+        clientMethodCall(userWs,"RtcDescription",data)
+    }else
+        throw new SendableError("No such authorrized user")
+
+
+}
+async function RtcCandidate(ws,data)
+{
+    if(idToWs.has(data.id)){
+        let userWs = idToWs.get(data.id);
+        data.id = ws.userID
+        clientMethodCall(userWs,"RtcCandidate",data)
+    }else
+        throw new SendableError("No such authorrized user")
+
+
+}
+function notifyRoom(roomID, method, data, except)
+{
+    authorizedInRooms[roomID].forEach(part =>
+        {
+            if(part !=except)
+                clientMethodCall(part,method,data);
+    
+        })
+        
+}
+
 console.log("server up");
 
 // :)
