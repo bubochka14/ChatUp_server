@@ -132,7 +132,7 @@ async function handleMethodCall(req,ws)
     }
     try
     {
-        var res = await serverMethods.get(method)(ws,req.data.args==undefined?{}:req.data.args)
+        var res = await serverMethods.get(method)(ws,(req.data.args==undefined|| req.data.args == null)?{}:req.data.args)
         sendSuccessResponse(ws,req.messageID,res)
     }
     catch(error){
