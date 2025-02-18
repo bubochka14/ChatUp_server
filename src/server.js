@@ -275,7 +275,12 @@ async function clientMethodCall(ws,method,args)
     if(ws==undefined || method == undefined)
         throw new Error("Websocket or method is not specified")
     console.log("methodcall",JSON.stringify({type: "methodCall",data:{method:method,args:args}}));
+    try{
     ws.send(JSON.stringify({messageID: messageIDCounter++,type: "methodCall",data:{method:method,args:args}}))
+    }catch(v)
+    {
+
+    }
 }
 async function broadcastMethodCall(method, args,except) {
     authorizedUsers.forEach((value,key) => {
