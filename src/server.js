@@ -78,20 +78,23 @@ async function authorizeUser(ws,user)
     idToWs.set(user.id,ws);
     });
 }
-function forgetUser(user,ws) {
+async function forgetUser(user,ws) {
     try{
-    userRoomsCache[user.id].forEach(room=>
-    {   
-        if(authorizedInRooms[room.id]!= undefined)
-        {
-           authorizedInRooms[room.id].delete(ws)
+        if(callController.getUserCall(user.id)!= undefined)
+            await disconnectCall(ws)
 
+        userRoomsCache[user.id].forEach(room=>
+        {   
+            if(authorizedInRooms[room.id]!= undefined)
+            {
+            authorizedInRooms[room.id].delete(ws)
+
+            }
         }
-    }
     )}
     catch(e)
     {
-        throw e;
+        console.log("Forget user exception", e);
     }
     delete userRoomsCache[user.id]
     idToWs.delete(user.id);
@@ -197,8 +200,13 @@ async function updateMessage(ws,data) {
 }
 async function disconnectCall(ws, data)
 {
-    await callController.disconnect(ws.userID,data)
-    notifyRoom(data.roomID,"disconnectCall",{roomID: data.roomID, participate:ws.userID},ws)
+    var roomID = await callController.getUserCall(ws.userID)
+    if(roomID != undefined)
+    {    
+        await callController.disconnect(ws.userID)
+        notifyRoom(roomID,"disconnectCall",{roomID: roomID, participate:ws.userID},ws)
+    }else
+        throw "User not inside the call";
 
 }
 async function joinCall(ws, data)
