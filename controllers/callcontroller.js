@@ -10,7 +10,7 @@ class CallController
     }
     get(roomID)
     {
-        if(roomID == undefined)
+        if(roomID == undefined || !this.#calls.has(roomID))
             throw "Invalid roomID received";
         return this.#calls[roomID]
     }
@@ -18,7 +18,7 @@ class CallController
     {
         if(roomID == undefined)
             throw "Invalid roomID received";
-        this.#calls[roomID]= {users: new Set()}
+        this.#calls[roomID]= {users: new Map()}
     }
     async join(userID, roomID)
     {
@@ -27,10 +27,10 @@ class CallController
         if(this.#calls[roomID]==undefined)
             this.create(roomID)
         else if (this.#calls[roomID].users.has(userID))
-            throw "User already in call"
+            throw "User already in this call"
         if(this.#userCache.get(userID)!= undefined)
             throw "User already in another call"
-        this.#calls[roomID].users.add(userID);
+        this.#calls[roomID].users.set(userID,{audio:false,video:false});
         this.#userCache.set(userID, roomID)
         return {"paticipants": Array.from(this.#calls[roomID].users.keys())};
     }
@@ -48,6 +48,20 @@ class CallController
     async getUserCall(userID)
     {
         return this.#userCache.get(userID)
+    }
+    async setMedia(roomID,userID,video,audio)
+    {
+        if(roomID == undefined || this.#calls[roomID]== undefined)
+            throw "Invalid roomID received";
+        if (!this.#calls[roomID].users.has(userID))
+            throw "User not inside the call"
+        let media = this.#calls[roomID].users.get(roomID)
+        if(video!=undefined)
+            media.video =video 
+        if(audio!=undefined)
+            media.audio =audio 
+        this.#calls[roomID].users.set(roomID,media)
+        return media
     }
 }
 export default CallController

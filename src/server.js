@@ -33,6 +33,7 @@ serverMethods.set(joinCall.name,joinCall)
 serverMethods.set(disconnectCall.name,disconnectCall)
 serverMethods.set(RtcDescription.name,RtcDescription)
 serverMethods.set(RtcCandidate.name,RtcCandidate)
+serverMethods.set(updateCallMedia.name,updateCallMedia)
 
 
 var userService = new UserService();
@@ -282,7 +283,7 @@ async function clientMethodCall(ws,method,args)
 {
     if(ws==undefined || method == undefined)
         throw new Error("Websocket or method is not specified")
-    console.log("methodcall",JSON.stringify({type: "methodCall",data:{method:method,args:args}}));
+    console.log("methodcall to",ws.userID,JSON.stringify({type: "methodCall",data:{method:method,args:args}}));
     try{
     ws.send(JSON.stringify({messageID: messageIDCounter++,type: "methodCall",data:{method:method,args:args}}))
     }catch(v)
@@ -328,8 +329,22 @@ async function RtcDescription(ws,data)
     }else
         throw new SendableError("No such authorrized user")
 
-
 }
+async function updateCallMedia(ws,data)
+{
+    let callRoomID = await callController.getUserCall(ws.userID);
+    if(!callRoomID)
+        throw new SendableError("User not inside a call")
+    let media = await callController.setMedia(callRoomID,ws.userID,data.video,data.audio)
+    let {video, audio} = media; 
+        notifyRoom(callRoomID,"updateCallMedia",{
+        userID: ws.userID,
+        roomID: callRoomID,
+        video: video,
+        audio: audio
+    },ws)
+}
+
 async function RtcCandidate(ws,data)
 {
     if(idToWs.has(data.id)){
@@ -338,8 +353,6 @@ async function RtcCandidate(ws,data)
         clientMethodCall(userWs,"RtcCandidate",data)
     }else
         throw new SendableError("No such authorrized user")
-
-
 }
 function notifyRoom(roomID, method, data, except)
 {
@@ -348,8 +361,7 @@ function notifyRoom(roomID, method, data, except)
             if(part !=except)
                 clientMethodCall(part,method,data);
     
-        })
-        
+        })       
 }
 
 console.log("server up");
