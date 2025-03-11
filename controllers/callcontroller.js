@@ -55,7 +55,7 @@ class CallController
             throw "Invalid roomID received";
         if (!this.#calls[roomID].users.has(userID))
             throw "User not inside the call"
-        let media = this.#calls[roomID].users.get(roomID)
+        let media = this.#calls[roomID].users.get(userID)
         if(video!=undefined)
             media.video =video 
         if(audio!=undefined)
