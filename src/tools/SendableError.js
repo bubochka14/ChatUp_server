@@ -1,5 +1,5 @@
 class SendableError extends Error {
-    constructor(sendToClient, sendToUser, ...params) {
+    constructor(sendToUser, ...params) {
       super(...params);
   
       // Maintains proper stack trace for where our error was thrown 
@@ -8,8 +8,7 @@ class SendableError extends Error {
       }
       this.name = "SendableError"
       this.sendToUser = sendToUser
-      this.sendToClient = sendToClient
-    }
+      }
   }
 
 export default  SendableError

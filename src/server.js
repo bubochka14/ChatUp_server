@@ -11,7 +11,6 @@ const wss = new WebSocketServer({port:8000,clientTracking:true})
 
 var serverMethods       = new Map()
 var idToWs              = new Map()
-var userRoomsCache ={}
 var authorizedInRooms ={}
 let messageIDCounter = 0
 serverMethods.set(registerUser.name, registerUser);
@@ -34,6 +33,7 @@ serverMethods.set(disconnectCall.name,disconnectCall)
 serverMethods.set(RtcDescription.name,RtcDescription)
 serverMethods.set(RtcCandidate.name,RtcCandidate)
 serverMethods.set(updateCallMedia.name,updateCallMedia)
+serverMethods.set(getCall.name,getCall)
 
 
 var userService = new UserService();
@@ -68,10 +68,6 @@ wss.on('connection',(ws,req)=> {
 async function authorizeUser(ws,user)
 {
     let rooms = await roomService.getUserRooms({userID:user.id,format:'minimal'})
-    if(userRoomsCache[user.id] == undefined)
-    {
-        userRoomsCache[user.id] = new Set(rooms)
-    }
     rooms.forEach(room => {
         if(authorizedInRooms[room.id] == undefined)
             authorizedInRooms[room.id] = new Set
@@ -81,15 +77,15 @@ async function authorizeUser(ws,user)
 }
 async function forgetUser(user,ws) {
     try{
-        if(callController.getUserCall(user.id)!= undefined)
+        if(await callController.getUserCall(user.id)!= undefined)
             await disconnectCall(ws)
+        let rooms = await roomService.getUserRooms({userID:user.id,format:'minimal'})
 
-        userRoomsCache[user.id].forEach(room=>
+        rooms.forEach(room=>
         {   
             if(authorizedInRooms[room.id]!= undefined)
             {
-            authorizedInRooms[room.id].delete(ws)
-
+                authorizedInRooms[room.id].delete(ws)
             }
         }
     )}
@@ -97,7 +93,6 @@ async function forgetUser(user,ws) {
     {
         console.log("Forget user exception", e);
     }
-    delete userRoomsCache[user.id]
     idToWs.delete(user.id);
 
     console.log("Deleted user",user.name,"id",user.id);
@@ -234,14 +229,13 @@ async function putToStartRoom(userID)
 {
    let startRoom = await getStartRoom();
    await roomService.addUserToRoom(startRoom.id, userID)
-   userRoomsCache[userID].add(startRoom.id)
    if(authorizedInRooms[startRoom.id] == undefined)
         authorizedInRooms[startRoom.id] = new Set()
-   authorizedInRooms[startRoom.id].add(userID)
+   authorizedInRooms[startRoom.id].add(idToWs(userID))
 }
 async function getRoomUsers(ws,data)
 {
-    // return await roomService.getRoomUsers(data.id)
+     return await roomService.getRoomUsers(data.roomID)
 }
 async function getUserRooms(ws,data)
 {
@@ -301,24 +295,28 @@ async function createRoom(ws, data)
 {
     let room = await roomService.addRoom(data)
     let userID = ws.userID;
-    userRoomsCache[userID].add(room.id)
     authorizedInRooms[room.id] = new Set()
     await roomService.addUserToRoom(room.id,userID)
-    authorizedInRooms[room.id].add(userID)
+    authorizedInRooms[room.id].add(ws)
     return room
+}
+async function getCall(ws,data)
+{
+    let room = callController.get(data.roomID) 
+    return room;
 }
 async function addUserToRoom(ws,data)
 {
     await roomService.addUserToRoom(data.roomID,data.userID)
-    let userID = ws.userID;
+    let userID = data.userID;
+    let targetWS = idToWs.get(userID);
+    notifyRoom(data.roomID,"addUserToRoom",{userID:userID,roomID:data.roomID},targetWS)
 
-    userRoomsCache[userID].add(data.roomID)
-    if(idToWs.has(userID))
-        {
-            let userWs = idToWs.get(userID);
-            authorizedInRooms[data.roomID].add(userWs)
-            clientMethodCall(userWs,"addRoom",await roomService.getRoom(data.roomID))
-        }
+    if(targetWS)
+    {
+        authorizedInRooms[data.roomID].add(targetWS)
+        clientMethodCall(targetWS,"addRoom",await roomService.getRoom(data.roomID))
+    }
 }
 async function RtcDescription(ws,data)
 {

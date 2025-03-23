@@ -10,9 +10,11 @@ class CallController
     }
     get(roomID)
     {
-        if(roomID == undefined || !this.#calls.has(roomID))
+        if(roomID == undefined)
             throw "Invalid roomID received";
-        return this.#calls[roomID]
+        if(!this.#calls[roomID])
+            return []
+        return {participants: Array.from(this.#calls[roomID].users,([id, value]) => ({ "participate":id, ...value }))}
     }
     create(roomID)
     {
@@ -32,7 +34,7 @@ class CallController
             throw "User already in another call"
         this.#calls[roomID].users.set(userID,{audio:false,video:false});
         this.#userCache.set(userID, roomID)
-        return {"paticipants": Array.from(this.#calls[roomID].users.keys())};
+        return {"participants": Array.from(this.#calls[roomID].users.keys())};
     }
     async disconnect(userID)
     {

@@ -1,6 +1,7 @@
 import randomString from "../tools/randomstring.js"
 import mysqlpool from '../mysqlconnector.js'
 import ObjectToStringConverter from "../tools/ObjectToStringConverter.js"
+import SendableError from "../tools/SendableError.js"
 class RoomService
 {
     constructor()
@@ -88,9 +89,19 @@ class RoomService
     {
         if(isNaN(roomID))throw new TypeError("RoomID is undefined");
         if(isNaN(userID))throw new TypeError("UserID is undefined");
-        await mysqlpool.promise().query("INSERT INTO room_users (roomId,userId) VALUES (?)",
+        let [[user]] = await mysqlpool.promise().query("SELECT * FROM room_users where userID =? AND roomID =?",[userID,roomID])
+        if(user)
+            throw new SendableError("This user already inside the room");
+        await mysqlpool.promise().query("INSERT INTO room_users (roomID,userID) VALUES (?)",
             [[roomID,userID]]);
         
+    }
+    async getRoomUsers(roomID)
+    {
+        if(isNaN(roomID))throw new TypeError("RoomID is undefined");
+        let [users]= await mysqlpool.promise().query(
+            "SELECT * FROM room_users  LEFT JOIN user_info ON user_info.id = room_users.userID WHERE roomID = ?",roomID);
+        return users;
     }
     async getUserRooms(pattern) 
     {
