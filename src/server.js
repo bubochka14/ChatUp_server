@@ -72,8 +72,11 @@ async function authorizeUser(ws,user)
         if(authorizedInRooms[room.id] == undefined)
             authorizedInRooms[room.id] = new Set
         authorizedInRooms[room.id].add(ws)
-    idToWs.set(user.id,ws);
     });
+    idToWs.set(user.id,ws);
+    ws.on("close", close => {
+        forgetUser(user,ws)
+    })
 }
 async function forgetUser(user,ws) {
     try{
@@ -152,9 +155,6 @@ async function loginUser(ws,data)
     ws.userID = user.id;
     await authorizeUser(ws,user)
     console.log("Logged " + user.name+ " id: ",user.id);
-    ws.on("close", close => {
-        forgetUser(user,ws)
-    });
     return user;
 }
 async function registerUser(ws,data)
@@ -166,12 +166,7 @@ async function registerUser(ws,data)
         throw new SendableError("Reregistration","Attempt to register with existed login")
     data.name = data.login
     user = await userService.addUser(data)
-    await authorizeUser(ws,user)
-    ws.userID = user.id;
     console.log("Registred new user " + user.name+ " id: ",user.id);
-    ws.on("close", close => {
-        forgetUser(user,ws)
-    })
     await putToStartRoom(user.id)
     return user;
 }
@@ -229,9 +224,6 @@ async function putToStartRoom(userID)
 {
    let startRoom = await getStartRoom();
    await roomService.addUserToRoom(startRoom.id, userID)
-   if(authorizedInRooms[startRoom.id] == undefined)
-        authorizedInRooms[startRoom.id] = new Set()
-   authorizedInRooms[startRoom.id].add(idToWs(userID))
 }
 async function getRoomUsers(ws,data)
 {
