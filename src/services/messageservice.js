@@ -55,7 +55,7 @@ async init()
         if(updateString == "")
             return {}
         await mysqlpool.promise().query("UPDATE room_messages SET " + 
-            updateString +" WHERE id = ?",data.id)
+            updateString +" WHERE id ="+data.id)
         return await this.getMessage(data.id);
     }
     async setReadMessagesCount(roomID, userID, count)
