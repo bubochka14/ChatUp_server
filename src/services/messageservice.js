@@ -1,5 +1,7 @@
 import mysqlpool from '../mysqlconnector.js'
 import ObjectToStringConverter from '../tools/ObjectToStringConverter.js'
+import mysql from 'mysql2'
+import moment from 'moment'
 
 class MessageService
 {
@@ -24,8 +26,10 @@ async init()
     async addMessage(data)
     {
         let [result]=  await mysqlpool.promise().query(`INSERT INTO room_messages \
-            (userID, roomID, messageIndex) SELECT ${data.userID},${data.roomID},COALESCE((MAX(messageIndex) + 1), 0)\
-             FROM room_messages WHERE roomID = ${data.roomID}`)
+            (userID, roomID, messageIndex,time,body) \
+            SELECT ${data.userID},${data.roomID},COALESCE((MAX(messageIndex) + 1), 0),\
+            "${moment(Date.now()).format('YYYY-MM-DD HH:mm:ss')}",?\
+            FROM room_messages WHERE roomID = ${data.roomID}`,data.body)
         return await this.getMessage(result.insertId)
     };
     async getMessage(id)
@@ -51,6 +55,7 @@ async init()
     {
         if(data.id == undefined)
             throw new TypeError("Data doesnt contain id field")
+        data.body = mysql.escape(data.body)
         let updateString = this.findConverter.convert(data)
         if(updateString == "")
             return {}

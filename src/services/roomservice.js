@@ -124,17 +124,29 @@ class RoomService
         }
         if(searchString == " AND " )
             return [];
+        if(pattern.format == undefined)
+            pattern.format =""
         let [res]= await mysqlpool.promise().query(
-            `SELECT ${pattern.format?(pattern.format.toLowerCase() == "minimal"?"id":"*"):"*"}\
+            `SELECT ${pattern.format.toLowerCase() == "minimal"?"room_info.id":"group_rooms.tag as tag,\
+                room_info.id as id, group_rooms.name as name, messageCount,fr.foreignReadings,ms.localReadings,\
+                last.body as lastBody, last.time as lastMessageTime, lastSender.name as lastSender"}\
             FROM room_info \
             LEFT JOIN room_users ON room_info.id = room_users.roomID \
             LEFT JOIN group_rooms ON room_info.id = group_rooms.roomID\
-            left join (SELECT roomID, count(distinct id) as messageCount\
-            from room_messages group by roomID) m ON m.roomID = group_rooms.roomID\
-            LEFT JOIN message_readings ON room_info.id = message_readings.roomID\
-            AND room_users.userID =message_readings.userID\
+            LEFT JOIN (SELECT roomID, count(distinct id) as messageCount\
+                FROM room_messages group by roomID) m ON m.roomID = group_rooms.roomID\
+            LEFT JOIN (SELECT max(count) as foreignReadings, roomID  \
+                FROM message_readings WHERE userID != ? GROUP BY roomID) as fr\
+                ON fr.roomID =room_info.id\
+            LEFT JOIN (SELECT max(count) as localReadings, roomID  \
+                FROM message_readings WHERE userID = ? GROUP BY roomID) as ms\
+                ON ms.roomID =room_info.id\
+            LEFT JOIN(select roomID,body,u.name,time,userID from room_messages LEFT JOIN user_info as u on u.id = userID \
+                where room_messages.id in (SELECT max(room_messages.id) from room_messages GROUP BY roomID))\
+                as last on last.roomID =room_info.id\
+            LEFT JOIN user_info as lastSender on last.userID = lastSender.id
             WHERE`+ (searchString!=""? `${searchString} AND`:"")+` room_users.userID = ?`
-            +(!isNaN(pattern.limit)?` LIMIT ${pattern.limit}`:""),pattern.userID);
+            +(!isNaN(pattern.limit)?` LIMIT ${pattern.limit}`:""),[pattern.userID,pattern.userID,pattern.userID]);
         
         return res
     }

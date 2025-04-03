@@ -1,5 +1,4 @@
 import WebSocket, { WebSocketServer } from 'ws';
-import moment from 'moment'
 
 import SendableError from './tools/SendableError.js'
 import UserService from './services/userservice.js'
@@ -12,6 +11,7 @@ const wss = new WebSocketServer({port:8000,clientTracking:true})
 var serverMethods       = new Map()
 var idToWs              = new Map()
 var authorizedInRooms ={}
+var offlineInRooms ={}
 let messageIDCounter = 0
 serverMethods.set(registerUser.name, registerUser);
 serverMethods.set(loginUser.name, loginUser);
@@ -172,11 +172,11 @@ async function registerUser(ws,data)
 }
 async function setReadMessagesCount(ws, data)
 {
-    let res = await messageService.getReadMessagesCount(data.roomID,ws.userID)
+    let before = (await messageService.getReadMessagesCount(data.roomID,ws.userID)).userCount
     await messageService.setReadMessagesCount(data.roomID,ws.userID,data.count)
-    if(res.maxCount<data.count)
+    if(before<data.count)
     {
-        notifyRoom(data.roomID,"updateReadCount",{maxCount:data.count, roomID: data.roomID},ws)
+        notifyRoom(data.roomID,"updateRoom",{foreignReadings:data.count, id: data.roomID},ws)
     }
 }
 
@@ -208,7 +208,12 @@ async function joinCall(ws, data)
 
 async function getUser(ws,data)
 {
-    return userService.getUser(data.id==undefined?ws.userID:data.id)
+    let id = data.id==undefined?ws.userID:data.id
+    let user = await userService.getUser(id)
+    if(idToWs.get(id))
+        user.status = "online"
+    else user.status = "offline"
+    return user;
 }
 async function getStartRoom()
 {
@@ -227,7 +232,16 @@ async function putToStartRoom(userID)
 }
 async function getRoomUsers(ws,data)
 {
-     return await roomService.getRoomUsers(data.roomID)
+    let users  = await roomService.getRoomUsers(data.roomID)
+    for(var i =0; i< users.length; i++)
+    {
+        if(authorizedInRooms[data.roomID].has(users[i].id))
+            users[i].status = "online"
+        else 
+            users[i].status = "offline"
+
+    }
+    return users;
 }
 async function getUserRooms(ws,data)
 {
@@ -257,11 +271,7 @@ async function getCurrentUserInfo(ws,data)
 
 async function sendChatMessage(ws, data )
 {
-    let mess = await messageService.addMessage({roomID: data.roomID,userID: ws.userID})
-    mess.body = data.body; 
-    mess.time = moment(Date.now()).format('YYYY-MM-DD HH:mm:ss');
-    mess = await messageService.updateMessage(mess);
-    mess.status = "sent"
+    let mess = await messageService.addMessage({roomID: data.roomID,userID: ws.userID,body:data.body})
     notifyRoom(mess.roomID,"postMessage",mess,ws)
     return mess;
 }

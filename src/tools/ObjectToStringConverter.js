@@ -7,7 +7,7 @@ class ObjectToStringConverter{
         this.entryPostfix =settings.entryPostfix||""
         this.separator = settings.separator || ""
         this.allowEmpty = settings.allowEmpty==undefined?false:settings.allowEmpty
-        this.escape = settings.escape || true
+        this.escape = settings.escape || []
 
     }
 convert(object) {
@@ -20,7 +20,7 @@ convert(object) {
             continue
         out+= `${this.keyPrefix}${this.keys[i]}${this.keyPostfix}
         ${(typeof object[this.keys[i]]=== 'string')?
-            `\'${object[this.keys[i]].replace(/[?=]/g, "\\?")}\'`
+            `\'${object[this.keys[i]]}\'`
             :`${object[this.keys[i]]}`}
             ${this.entryPostfix}`
             out+=this.separator
