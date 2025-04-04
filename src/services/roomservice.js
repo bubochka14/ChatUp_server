@@ -129,7 +129,7 @@ class RoomService
         let [res]= await mysqlpool.promise().query(
             `SELECT ${pattern.format.toLowerCase() == "minimal"?"room_info.id":"group_rooms.tag as tag,\
                 room_info.id as id, group_rooms.name as name, messageCount,fr.foreignReadings,ms.localReadings,\
-                last.body as lastBody, last.time as lastMessageTime, lastSender.name as lastSender"}\
+                last.body as lastBody, last.time as lastMessageTime, last.userID as lastSender"}\
             FROM room_info \
             LEFT JOIN room_users ON room_info.id = room_users.roomID \
             LEFT JOIN group_rooms ON room_info.id = group_rooms.roomID\
@@ -141,10 +141,9 @@ class RoomService
             LEFT JOIN (SELECT max(count) as localReadings, roomID  \
                 FROM message_readings WHERE userID = ? GROUP BY roomID) as ms\
                 ON ms.roomID =room_info.id\
-            LEFT JOIN(select roomID,body,u.name,time,userID from room_messages LEFT JOIN user_info as u on u.id = userID \
+            LEFT JOIN(select roomID,body,time,userID from room_messages\
                 where room_messages.id in (SELECT max(room_messages.id) from room_messages GROUP BY roomID))\
                 as last on last.roomID =room_info.id\
-            LEFT JOIN user_info as lastSender on last.userID = lastSender.id
             WHERE`+ (searchString!=""? `${searchString} AND`:"")+` room_users.userID = ?`
             +(!isNaN(pattern.limit)?` LIMIT ${pattern.limit}`:""),[pattern.userID,pattern.userID,pattern.userID]);
         
