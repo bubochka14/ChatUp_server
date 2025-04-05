@@ -71,6 +71,7 @@ async function authorizeUser(ws,user)
     rooms.forEach(room => {
         if(authorizedInRooms[room.id] == undefined)
             authorizedInRooms[room.id] = new Set
+        notifyRoom(room.id,"updateUser",{id: user.id,status:"online"})
         authorizedInRooms[room.id].add(ws)
     });
     idToWs.set(user.id,ws);
@@ -89,6 +90,8 @@ async function forgetUser(user,ws) {
             if(authorizedInRooms[room.id]!= undefined)
             {
                 authorizedInRooms[room.id].delete(ws)
+                notifyRoom(room.id,"updateUser",{id: user.id,status:"offline"})
+
             }
         }
     )}
@@ -97,7 +100,6 @@ async function forgetUser(user,ws) {
         console.log("Forget user exception", e);
     }
     idToWs.delete(user.id);
-
     console.log("Deleted user",user.name,"id",user.id);
 }
 function sendSuccessResponse(ws,to,returnValue)
