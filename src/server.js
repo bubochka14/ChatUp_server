@@ -72,7 +72,7 @@ async function authorizeUser(ws,user)
         if(authorizedInRooms[room.id] == undefined)
             authorizedInRooms[room.id] = new Set
         notifyRoom(room.id,"updateUser",{id: user.id,status:"online"})
-        authorizedInRooms[room.id].add(ws)
+        authorizedInRooms[room.id].add(user.id)
     });
     idToWs.set(user.id,ws);
     ws.on("close", close => {
@@ -89,7 +89,7 @@ async function forgetUser(user,ws) {
         {   
             if(authorizedInRooms[room.id]!= undefined)
             {
-                authorizedInRooms[room.id].delete(ws)
+                authorizedInRooms[room.id].delete(user.id)
                 notifyRoom(room.id,"updateUser",{id: user.id,status:"offline"})
 
             }
@@ -301,7 +301,7 @@ async function createRoom(ws, data)
     let userID = ws.userID;
     authorizedInRooms[room.id] = new Set()
     await roomService.addUserToRoom(room.id,userID)
-    authorizedInRooms[room.id].add(ws)
+    authorizedInRooms[room.id].add(userID)
     return room
 }
 async function getCall(ws,data)
@@ -318,7 +318,7 @@ async function addUserToRoom(ws,data)
 
     if(targetWS)
     {
-        authorizedInRooms[data.roomID].add(targetWS)
+        authorizedInRooms[data.roomID].add(userID)
         clientMethodCall(targetWS,"addRoom",await roomService.getRoom(data.roomID))
     }
 }
@@ -360,8 +360,9 @@ function notifyRoom(roomID, method, data, except)
 {
     authorizedInRooms[roomID].forEach(part =>
         {
-            if(part !=except)
-                clientMethodCall(part,method,data);
+            let ws = idToWs.get(part)
+            if(ws !=except && ws != undefined)
+                clientMethodCall(ws,method,data);
     
         })       
 }
