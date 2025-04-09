@@ -1,12 +1,16 @@
 import WebSocket, { WebSocketServer } from 'ws';
-
+import { readFileSync } from 'fs';
+import { createServer } from 'https';
 import SendableError from './tools/SendableError.js'
 import UserService from './services/userservice.js'
 import MessageService from './services/messageservice.js'
 import RoomService from './services/roomservice.js'
 import CallController from '../controllers/callcontroller.js';
-
-const wss = new WebSocketServer({port:8000,clientTracking:true})
+const server = createServer({
+  cert: readFileSync('/src/cert.pem'),
+  key: readFileSync('/src/key.pem')
+});
+const wss = new WebSocketServer({ server });
 
 var serverMethods       = new Map()
 var idToWs              = new Map()
@@ -22,8 +26,8 @@ serverMethods.set(getCurrentUserInfo.name, getCurrentUserInfo);
 serverMethods.set(getUserRooms.name, getUserRooms);
 serverMethods.set(sendChatMessage.name, sendChatMessage);
 serverMethods.set(getRoomHistory.name, getRoomHistory);
-serverMethods.set(getRoomUsers.name, getRoomUsers); 
-serverMethods.set(createRoom.name, createRoom); 
+serverMethods.set(getRoomUsers.name, getRoomUsers);
+serverMethods.set(createRoom.name, createRoom);
 serverMethods.set(updateMessage.name,updateMessage)
 serverMethods.set(getReadMessagesCount.name,getReadMessagesCount)
 serverMethods.set(setReadMessagesCount.name,setReadMessagesCount)
@@ -59,7 +63,7 @@ wss.on('connection',(ws,req)=> {
             case "methodCall":
                 handleMethodCall(message,ws);
                 break;
-            default : 
+            default :
                 sendBadResponse(ws,message.id,"Unsupported message type: "+ message.type );
                 break;
         }
@@ -86,7 +90,7 @@ async function forgetUser(user,ws) {
         let rooms = await roomService.getUserRooms({userID:user.id,format:'minimal'})
 
         rooms.forEach(room=>
-        {   
+        {
             if(authorizedInRooms[room.id]!= undefined)
             {
                 authorizedInRooms[room.id].delete(user.id)
@@ -127,7 +131,7 @@ function sendResponse(ws, data)
     ws.send(JSON.stringify(response));
 }
 async function handleMethodCall(req,ws)
-{       
+{
     var method = req.data.method;
     if(!serverMethods.has(method))
     {
@@ -142,7 +146,7 @@ async function handleMethodCall(req,ws)
     catch(error){
     if(error.sendToUser)
         sendBadResponse(ws,req.messageID,error.sendToUser);
-    else 
+    else
         sendBadResponse(ws,req.messageID,"Server error");
         console.log(error);
     };
@@ -160,10 +164,10 @@ async function loginUser(ws,data)
     return user;
 }
 async function registerUser(ws,data)
-{   
+{
     if(!data.login || !data.password || data.login =="" || data.password =="")
         throw new SendableError("EmptyCredentials","Attempt to register with null credentials");
-    let user = await userService.getUserByLogin(data.login)     
+    let user = await userService.getUserByLogin(data.login)
     if(user != undefined)
         throw new SendableError("Reregistration","Attempt to register with existed login")
     data.name = data.login
@@ -195,7 +199,7 @@ async function disconnectCall(ws, data)
 {
     var roomID = await callController.getUserCall(ws.userID)
     if(roomID != undefined)
-    {    
+    {
         await callController.disconnect(ws.userID)
         notifyRoom(roomID,"disconnectCall",{roomID: roomID, participate:ws.userID},ws)
     }else
@@ -239,7 +243,7 @@ async function getRoomUsers(ws,data)
     {
         if(authorizedInRooms[data.roomID].has(users[i].id))
             users[i].status = "online"
-        else 
+        else
             users[i].status = "offline"
 
     }
@@ -306,7 +310,7 @@ async function createRoom(ws, data)
 }
 async function getCall(ws,data)
 {
-    let room = callController.get(data.roomID) 
+    let room = callController.get(data.roomID)
     return room;
 }
 async function addUserToRoom(ws,data)
@@ -338,7 +342,7 @@ async function updateCallMedia(ws,data)
     if(!callRoomID)
         throw new SendableError("User not inside a call")
     let media = await callController.setMedia(callRoomID,ws.userID,data.video,data.audio)
-    let {video, audio} = media; 
+    let {video, audio} = media;
         notifyRoom(callRoomID,"updateCallMedia",{
         userID: ws.userID,
         roomID: callRoomID,
@@ -363,11 +367,10 @@ function notifyRoom(roomID, method, data, except)
             let ws = idToWs.get(part)
             if(ws !=except && ws != undefined)
                 clientMethodCall(ws,method,data);
-    
-        })       
-}
 
+        })
+}
+server.listen(8000)
 console.log("server up");
 
 // :)
-1
